@@ -3,21 +3,22 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. Page Configuration & UI Professional Style
+# 1. Page Configuration & Professional UI Style
 st.set_page_config(page_title="AMS - Smart Substitution", layout="wide")
 
-# High Stability Background Image URL
-BG_URL = "https://images.unsplash.com/photo-1523050853061-830537572251?q=80&w=2070&auto=format&fit=crop"
+# Link to your school image
+SCHOOL_BG = "https://i.ibb.co/v4m3S3v/rs-w-890-cg-true.webp"
 
 st.markdown(f"""
 <style>
 /* Natural Background (Contain) without distorted zoom */
 [data-testid="stAppViewContainer"] {{
-    background-image: url("{BG_URL}");
-    background-size: cover; /* Adjusted to cover for better filling, use 'contain' if you want it smaller */
+    background-image: url("{SCHOOL_BG}");
+    background-size: contain; 
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
+    background-color: #f8f9fa; /* Light gray fallback */
 }}
 
 /* Semi-transparent White Overlay for High Contrast */
@@ -55,7 +56,6 @@ h1, h2, h3, p, span, label, .stSelectbox label {{
     font-weight: bold !important;
     border-radius: 8px !important;
     width: 100%;
-    height: 50px;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -95,7 +95,8 @@ try:
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
     
-    st.subheader(f"📅 Staff Schedule - {day}")
+    # Requirement: Change Staff to ELA Teachers'
+    st.subheader(f"📅 ELA Teachers' Schedule - {day}")
     st.dataframe(day_df, use_container_width=True)
 
     st.sidebar.divider()
@@ -140,6 +141,16 @@ try:
     st.dataframe(res_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
         lambda v: f'color: {"red" if v < 0 else "green" if v > 0 else "black"}', subset=['Net']
     ), use_container_width=True)
+
+    # RE-ADDED: Download Button
+    st.divider()
+    csv = res_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="📥 Download Updated Balance Sheet (CSV)",
+        data=csv,
+        file_name=f"AMS_Substitution_Report_{day}.csv",
+        mime="text/csv",
+    )
 
 except Exception as e:
     st.error(f"Error: {e}")
