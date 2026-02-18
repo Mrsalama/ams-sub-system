@@ -3,8 +3,8 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. إعدادات الصفحة والستايل لتحسين الوضوح (Contrast)
-st.set_page_config(page_title="AMS - Substitution System", layout="wide")
+# 1. إعدادات الصفحة والستايل (تحسين التباين والوضوح)
+st.set_page_config(page_title="AMS - Smart Substitution System", layout="wide")
 
 st.markdown(f"""
 <style>
@@ -14,9 +14,9 @@ st.markdown(f"""
 }}
 [data-testid="stAppViewContainer"]::before {{
     content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background-color: rgba(255, 255, 255, 0.9); z-index: 0;
+    background-color: rgba(255, 255, 255, 0.92); z-index: 0;
 }}
-h1, h2, h3, p, span, label {{
+h1, h2, h3, p, span, label, .stSelectbox label {{
     color: #000000 !important; font-weight: bold !important;
 }}
 .stDataFrame {{
@@ -36,40 +36,47 @@ TAB_GIDS = {
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- الخطوة الحاسمة: تهيئة كل المتغيرات (Initialization) ---
+# --- تهيئة البيانات مع تنظيف الأعمدة (Fixing 'Debit' Error) ---
 if 'balance_data' not in st.session_state:
     try:
-        # محاولة قراءة سجل الحسابات
+        # قراءة الشيت
         df_bal = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}")
+        
+        # خطوة سحرية: تنظيف أسماء الأعمدة من المسافات والرموز المخفية
         df_bal.columns = [str(c).strip() for c in df_bal.columns]
+        
+        # التأكد من وجود الأعمدة المطلوبة أو تنبيهك بالأسماء الموجودة فعلياً
+        required = ['Teacher_Name', 'Debit', 'Credit']
+        if not all(col in df_bal.columns for col in required):
+            st.error(f"⚠️ لم نجد الأعمدة المطلوبة. الأعمدة الموجودة في الشيت هي: {list(df_bal.columns)}")
+            st.info("تأكد أن أسماء الأعمدة في جوجل شيت هي بالظبط: Teacher_Name و Debit و Credit")
+            st.stop()
+
         df_bal['Debit'] = pd.to_numeric(df_bal['Debit'], errors='coerce').fillna(0)
         df_bal['Credit'] = pd.to_numeric(df_bal['Credit'], errors='coerce').fillna(0)
         st.session_state.balance_data = df_bal
+        st.session_state.used_today = []
     except Exception as e:
-        st.error(f"⚠️ فشل في تحميل سجل الحسابات. يرجى التحقق من إعدادات الـ Secrets. الخطأ: {e}")
-        st.stop() # إيقاف التنفيذ هنا حتى يتم حل المشكلة
+        st.error(f"⚠️ فشل في تحميل سجل الحسابات: {e}")
+        st.stop()
 
-if 'used_today' not in st.session_state:
-    st.session_state.used_today = []
-
-# 3. محرك النظام (يظهر فقط إذا تم التحميل بنجاح)
+# 3. محرك النظام
 try:
     selected_day = st.sidebar.selectbox("📅 اختر اليوم الدراسي:", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
     
     # تحميل جدول حصص اليوم
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[selected_day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
-    day_df = day_df.dropna(subset=['Teacher_Name'])
     
     st.subheader(f"📊 جدول الحصص الكامل - {selected_day}")
     st.dataframe(day_df, use_container_width=True)
 
     st.sidebar.divider()
-    absent_t = st.sidebar.selectbox("👤 المدرس الغائب:", day_df['Teacher_Name'].unique())
+    absent_t = st.sidebar.selectbox("👤 المدرس الغائب:", day_df['Teacher_Name'].dropna().unique())
     session_cols = [c for c in day_df.columns if "Session" in c]
     sel_sess = st.sidebar.selectbox("⏳ الحصة المطلوبة:", session_cols)
 
-    # فلترة البدلاء المتاحين
+    # فلترة البدلاء
     available = []
     for _, row in day_df.iterrows():
         workload = sum(1 for c in session_cols if str(row[c]).lower() != 'free' and pd.notna(row[c]))
@@ -84,24 +91,20 @@ try:
     with c_sel:
         sub_t = st.selectbox("المدرس المقترح:", available) if available else st.warning("لا يوجد بديل متاح")
 
-    # 4. زر التأكيد ونظام "المقاصة" (Net Balance)
     if sub_t and st.button("✅ تأكيد ومزامنة البيانات"):
-        # تحديث الميزان: الغائب (+1 Debit) والبديل (+1 Credit)
+        # المقاصة التراكمية
         st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += 1
         st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_t, 'Credit'] += 1
-        
-        # إضافة البديل لقائمة المستخدمين اليوم لمنع تكراره
         st.session_state.used_today.append(sub_t)
         
-        # محاولة تحديث جوجل شيت أونلاين
         try:
             conn.update(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}", data=st.session_state.balance_data)
             st.success("✅ تم تحديث جوجل شيت بنجاح!")
         except:
-            st.warning("⚠️ التحديث تم داخلياً فقط. تأكد من إعدادات الـ Secrets للكتابة في الشيت.")
+            st.warning("⚠️ التحديث تم داخلياً فقط.")
         st.balloons()
 
-    # 5. عرض الميزان الصافي فقط
+    # عرض الميزان الصافي فقط
     st.divider()
     st.subheader("📊 ميزان النقاط التراكمي (Net Balance)")
     final_df = st.session_state.balance_data.copy()
