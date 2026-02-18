@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. إعدادات الصفحة والستايل (تحسين التباين والوضوح)
+# 1. إعدادات الصفحة والستايل
 st.set_page_config(page_title="AMS - Smart Substitution System", layout="wide")
 
 st.markdown(f"""
@@ -36,47 +36,54 @@ TAB_GIDS = {
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- تهيئة البيانات مع تنظيف الأعمدة (Fixing 'Debit' Error) ---
+# --- معالجة ذكية للأعمدة (حل مشكلة Unnamed) ---
 if 'balance_data' not in st.session_state:
     try:
-        # قراءة الشيت
+        # قراءة البيانات مع تجاهل العناوين القديمة
         df_bal = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}")
         
-        # خطوة سحرية: تنظيف أسماء الأعمدة من المسافات والرموز المخفية
-        df_bal.columns = [str(c).strip() for c in df_bal.columns]
+        # حذف الصفوف والأعمدة الفارغة تماماً
+        df_bal = df_bal.dropna(how='all', axis=0).dropna(how='all', axis=1)
         
-        # التأكد من وجود الأعمدة المطلوبة أو تنبيهك بالأسماء الموجودة فعلياً
-        required = ['Teacher_Name', 'Debit', 'Credit']
-        if not all(col in df_bal.columns for col in required):
-            st.error(f"⚠️ لم نجد الأعمدة المطلوبة. الأعمدة الموجودة في الشيت هي: {list(df_bal.columns)}")
-            st.info("تأكد أن أسماء الأعمدة في جوجل شيت هي بالظبط: Teacher_Name و Debit و Credit")
-            st.stop()
-
+        # إجبار النظام على تسمية أول 3 أعمدة بالأسماء المطلوبة برمجياً
+        # هذا سيحل مشكلة 'Unnamed' مهما كان المكتوب في الشيت
+        new_cols = ['Teacher_Name', 'Debit', 'Credit']
+        current_cols = list(df_bal.columns)
+        
+        # استبدال أول 3 أسماء فقط والحفاظ على الباقي
+        for i in range(len(new_cols)):
+            current_cols[i] = new_cols[i]
+        
+        df_bal.columns = current_cols
+        
+        # تنظيف البيانات وتحويلها لأرقام
         df_bal['Debit'] = pd.to_numeric(df_bal['Debit'], errors='coerce').fillna(0)
         df_bal['Credit'] = pd.to_numeric(df_bal['Credit'], errors='coerce').fillna(0)
+        
         st.session_state.balance_data = df_bal
         st.session_state.used_today = []
     except Exception as e:
-        st.error(f"⚠️ فشل في تحميل سجل الحسابات: {e}")
+        st.error(f"⚠️ فشل في تنظيم أعمدة الشيت: {e}")
         st.stop()
 
-# 3. محرك النظام
+# 3. محرك النظام (الجداول والبدائل)
 try:
     selected_day = st.sidebar.selectbox("📅 اختر اليوم الدراسي:", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
     
-    # تحميل جدول حصص اليوم
+    # تحميل جدول اليوم (header=1 يعني تخطي السطر الأول إذا كان هناك دمج خلايا)
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[selected_day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
-    
-    st.subheader(f"📊 جدول الحصص الكامل - {selected_day}")
+    day_df = day_df.dropna(subset=['Teacher_Name'])
+
+    st.subheader(f"📊 جدول حصص المدرسين - {selected_day}")
     st.dataframe(day_df, use_container_width=True)
 
     st.sidebar.divider()
-    absent_t = st.sidebar.selectbox("👤 المدرس الغائب:", day_df['Teacher_Name'].dropna().unique())
+    absent_t = st.sidebar.selectbox("👤 المدرس الغائب:", day_df['Teacher_Name'].unique())
     session_cols = [c for c in day_df.columns if "Session" in c]
     sel_sess = st.sidebar.selectbox("⏳ الحصة المطلوبة:", session_cols)
 
-    # فلترة البدلاء
+    # فلترة البدلاء المتاحين
     available = []
     for _, row in day_df.iterrows():
         workload = sum(1 for c in session_cols if str(row[c]).lower() != 'free' and pd.notna(row[c]))
@@ -101,16 +108,17 @@ try:
             conn.update(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}", data=st.session_state.balance_data)
             st.success("✅ تم تحديث جوجل شيت بنجاح!")
         except:
-            st.warning("⚠️ التحديث تم داخلياً فقط.")
+            st.warning("⚠️ التحديث تم داخلياً فقط. (تحقق من الـ Secrets للكتابة)")
         st.balloons()
 
-    # عرض الميزان الصافي فقط
+    # 4. عرض الميزان الصافي
     st.divider()
     st.subheader("📊 ميزان النقاط التراكمي (Net Balance)")
-    final_df = st.session_state.balance_data.copy()
-    final_df['Net'] = final_df['Credit'] - final_df['Debit']
+    res_df = st.session_state.balance_data.copy()
+    res_df['Net'] = res_df['Credit'] - res_df['Debit']
     
-    st.dataframe(final_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
+    # عرض الأعمدة الثلاثة الأساسية + الصافي
+    st.dataframe(res_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
         lambda v: f'color: {"red" if v < 0 else "green" if v > 0 else "black"}', subset=['Net']
     ), use_container_width=True)
 
