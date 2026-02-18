@@ -18,8 +18,7 @@ st.markdown(f"""
 }}
 [data-testid="stAppViewContainer"]::before {{
     content: "";
-    position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background-color: rgba(255, 255, 255, 0.88); 
     z-index: 0;
 }}
@@ -36,15 +35,22 @@ TAB_GIDS = {
     "Wednesday": "1640660009", "Thursday": "1422765568", "Debit & Credit": "1340439346"
 }
 
-# إنشاء الاتصال
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- الخطوة الأهم: تهيئة البيانات (Initialization) ---
+# --- تهيئة البيانات مع معالجة خطأ أسماء الأعمدة ---
 if 'balance_data' not in st.session_state:
     try:
-        # محاولة تحميل سجل الحسابات
+        # قراءة الشيت
         df_bal = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}")
+        
+        # تنظيف أسماء الأعمدة من أي مسافات مخفية
         df_bal.columns = [str(c).strip() for c in df_bal.columns]
+        
+        # التأكد من وجود الأعمدة المطلوبة أو إنشاؤها إذا نقصت
+        for col in ['Teacher_Name', 'Debit', 'Credit']:
+            if col not in df_bal.columns:
+                st.error(f"⚠️ العمود '{col}' غير موجود في تبويب Debit & Credit. الأعمدة المتاحة هي: {list(df_bal.columns)}")
+                st.stop()
         
         # تحويل البيانات لأرقام
         df_bal['Debit'] = pd.to_numeric(df_bal['Debit'], errors='coerce').fillna(0)
@@ -53,10 +59,10 @@ if 'balance_data' not in st.session_state:
         st.session_state.balance_data = df_bal
         st.session_state.used_today = []
     except Exception as e:
-        st.error(f"⚠️ فشل الاتصال بجوجل شيت. تأكد من إعدادات الـ Secrets. الخطأ: {e}")
-        st.stop() # إيقاف التطبيق هنا حتى يتم حل مشكلة الاتصال
+        st.error(f"⚠️ خطأ في تحميل البيانات: {e}")
+        st.stop()
 
-# 3. واجهة المستخدم (تظهر فقط إذا نجح الاتصال)
+# 3. واجهة المستخدم
 try:
     selected_day = st.sidebar.selectbox("📅 اختر اليوم الدراسي:", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
     
@@ -92,22 +98,19 @@ try:
         sub_t = st.selectbox("المدرس المقترح:", available) if available else st.warning("لا يوجد بدلاء متاحين")
 
     if sub_t and st.button("✅ Confirm Substitution"):
-        # تحديث الحسابات
-        role = str(day_df[day_df['Teacher_Name'] == absent_t]['Role'].iloc[0])
-        if "HOD" not in role and "Home Class" not in role:
-            st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += 1
+        # تحديث الحسابات داخلياً
+        if absent_t in st.session_state.balance_data['Teacher_Name'].values:
+            role = str(day_df[day_df['Teacher_Name'] == absent_t]['Role'].iloc[0])
+            if "HOD" not in role and "Home Class" not in role:
+                st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += 1
         
-        st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_t, 'Credit'] += 1
-        st.session_state.used_today.append(sub_t)
-        
-        # محاولة تحديث الشيت أونلاين فوراً
-        try:
-            conn.update(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}", data=st.session_state.balance_data)
-            st.success("✅ تم التحديث في جوجل شيت بنجاح!")
-        except:
-            st.warning("⚠️ تم التحديث داخلياً فقط (مشكلة في صلاحيات الكتابة)، يرجى تحميل الملف يدوياً.")
-            
-        st.balloons()
+        if sub_t in st.session_state.balance_data['Teacher_Name'].values:
+            st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_t, 'Credit'] += 1
+            st.session_state.used_today.append(sub_t)
+            st.success(f"تم تسجيل البديلة: {sub_t} مكان {absent_t}")
+            st.balloons()
+        else:
+            st.error(f"المدرس {sub_t} غير موجود في سجل الحسابات.")
 
     st.divider()
     st.subheader("📊 ميزان النقاط (Net Balance)")
@@ -120,4 +123,4 @@ try:
     st.download_button("📥 تحميل التقرير المحدث", data=csv, file_name=f"AMS_Update.csv")
 
 except Exception as e:
-    st.error(f"خطأ في معالجة البيانات: {e}")
+    st.error(f"حدث خطأ: {e}")
