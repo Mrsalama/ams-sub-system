@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. إعدادات الصفحة والخلفية
+# 1. إعدادات الصفحة والخلفية (التباين المحسن)
 st.set_page_config(page_title="AMS - Smart Substitution System", layout="wide")
 
 BACKGROUND_IMAGE = "https://get.wallhere.com/photo/school-building-architecture-education-high-school-university-campus-state-school-1383854.jpg"
@@ -19,7 +19,7 @@ st.markdown(f"""
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background-color: rgba(255, 255, 255, 0.88); 
+    background-color: rgba(255, 255, 255, 0.92); 
     z-index: 0;
 }}
 .main .block-container {{ position: relative; z-index: 1; }}
@@ -37,41 +37,49 @@ TAB_GIDS = {
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- تهيئة البيانات مع معالجة خطأ أسماء الأعمدة ---
+# --- معالجة ذكية لتبويب الحسابات ---
 if 'balance_data' not in st.session_state:
     try:
-        # قراءة الشيت
-        df_bal = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}")
+        # قراءة الشيت بالكامل
+        raw_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}")
         
-        # تنظيف أسماء الأعمدة من أي مسافات مخفية
-        df_bal.columns = [str(c).strip() for c in df_bal.columns]
+        # البحث عن الصف الذي يحتوي على كلمة Teacher_Name
+        # إذا لم يجدها، سيفترض أن البيانات تبدأ من أول صف غير فارغ
+        raw_df = raw_df.dropna(how='all', axis=0).dropna(how='all', axis=1)
         
-        # التأكد من وجود الأعمدة المطلوبة أو إنشاؤها إذا نقصت
-        for col in ['Teacher_Name', 'Debit', 'Credit']:
-            if col not in df_bal.columns:
-                st.error(f"⚠️ العمود '{col}' غير موجود في تبويب Debit & Credit. الأعمدة المتاحة هي: {list(df_bal.columns)}")
-                st.stop()
+        # محاولة تعيين أسماء الأعمدة الصحيحة
+        if "Teacher_Name" not in raw_df.columns:
+            # إذا كانت البيانات في أول صف، اجعله هيدر
+            new_header = raw_df.iloc[0] 
+            raw_df = raw_df[1:]
+            raw_df.columns = new_header
+            
+        # تنظيف نهائي لأسماء الأعمدة
+        raw_df.columns = [str(c).strip() for c in raw_df.columns]
         
-        # تحويل البيانات لأرقام
-        df_bal['Debit'] = pd.to_numeric(df_bal['Debit'], errors='coerce').fillna(0)
-        df_bal['Credit'] = pd.to_numeric(df_bal['Credit'], errors='coerce').fillna(0)
+        # التأكد من وجود الأعمدة أو تسميتها بالترتيب (مدرس، غياب، دخول)
+        target_cols = ['Teacher_Name', 'Debit', 'Credit']
+        if not all(col in raw_df.columns for col in target_cols):
+             raw_df.columns = target_cols + list(raw_df.columns[len(target_cols):])
+
+        # تحويل القيم لأرقام لضمان عمل المقاصة (+1 و -1)
+        raw_df['Debit'] = pd.to_numeric(raw_df['Debit'], errors='coerce').fillna(0)
+        raw_df['Credit'] = pd.to_numeric(raw_df['Credit'], errors='coerce').fillna(0)
         
-        st.session_state.balance_data = df_bal
+        st.session_state.balance_data = raw_df
         st.session_state.used_today = []
     except Exception as e:
-        st.error(f"⚠️ خطأ في تحميل البيانات: {e}")
+        st.error(f"⚠️ فشل في تنظيم أعمدة الحسابات. يرجى التأكد من تبويب Debit & Credit. الخطأ: {e}")
         st.stop()
 
-# 3. واجهة المستخدم
+# 3. محرك النظام (الجداول والبدائل)
 try:
     selected_day = st.sidebar.selectbox("📅 اختر اليوم الدراسي:", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
-    
-    # تحميل جدول اليوم
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[selected_day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
     day_df = day_df.dropna(subset=['Teacher_Name'])
 
-    st.subheader(f"📊 جدول الحصص الكامل - {selected_day}")
+    st.subheader(f"📊 جدول الحصص - {selected_day}")
     st.dataframe(day_df, use_container_width=True)
 
     st.sidebar.divider()
@@ -79,48 +87,40 @@ try:
     sessions = [c for c in day_df.columns if "Session" in c]
     sel_session = st.sidebar.selectbox("⏳ الحصة المطلوبة:", sessions)
 
-    # فلترة البدلاء
-    def workload(row):
+    # حساب نصاب المدرس (يجب أن يكون أقل من 6 حصص)
+    def check_workload(row):
         return sum(1 for c in sessions if str(row[c]).lower() != 'free' and pd.notna(row[c]))
 
     available = []
     for _, row in day_df.iterrows():
-        if (str(row[sel_session]).lower() == 'free' and workload(row) < 6 and 
+        if (str(row[sel_session]).lower() == 'free' and check_workload(row) < 6 and 
             row['Teacher_Name'] not in st.session_state.used_today and row['Teacher_Name'] != absent_t):
             available.append(row['Teacher_Name'])
 
-    st.subheader(f"🔍 البدلاء المتاحون (الحصة: {sel_session})")
+    st.subheader(f"🔍 البدلاء المتاحون لحصة {absent_t}")
     col_sel, col_shu = st.columns([3, 1])
     with col_shu: 
         if st.button("🔀 Shuffle"): random.shuffle(available)
     
     with col_sel:
-        sub_t = st.selectbox("المدرس المقترح:", available) if available else st.warning("لا يوجد بدلاء متاحين")
+        sub_t = st.selectbox("المدرس البديل المقترح:", available) if available else st.warning("لا يوجد بديل متاح")
 
-    if sub_t and st.button("✅ Confirm Substitution"):
-        # تحديث الحسابات داخلياً
-        if absent_t in st.session_state.balance_data['Teacher_Name'].values:
-            role = str(day_df[day_df['Teacher_Name'] == absent_t]['Role'].iloc[0])
-            if "HOD" not in role and "Home Class" not in role:
-                st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += 1
-        
-        if sub_t in st.session_state.balance_data['Teacher_Name'].values:
-            st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_t, 'Credit'] += 1
-            st.session_state.used_today.append(sub_t)
-            st.success(f"تم تسجيل البديلة: {sub_t} مكان {absent_t}")
-            st.balloons()
-        else:
-            st.error(f"المدرس {sub_t} غير موجود في سجل الحسابات.")
+    if sub_t and st.button("✅ تأكيد البديلة والمقاصة"):
+        # تسجيل النقاط: الغائب +1 في Debit (خصم)، البديل +1 في Credit (إضافة)
+        st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += 1
+        st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_t, 'Credit'] += 1
+        st.session_state.used_today.append(sub_t)
+        st.success(f"تمت العملية! رصيد {sub_t} تحسن بمقدار نقطة.")
+        st.balloons()
 
+    # 4. عرض الميزان الصافي (Net Balance)
     st.divider()
-    st.subheader("📊 ميزان النقاط (Net Balance)")
+    st.subheader("📊 ميزان النقاط التراكمي (Net Balance)")
     res_df = st.session_state.balance_data.copy()
-    res_df['Net'] = res_df['Credit'] - res_df['Debit']
+    res_df['Net Balance'] = res_df['Credit'] - res_df['Debit']
     
-    st.dataframe(res_df.style.applymap(lambda v: f'color: {"red" if v < 0 else "green" if v > 0 else "black"}', subset=['Net']), use_container_width=True)
-
-    csv = res_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 تحميل التقرير المحدث", data=csv, file_name=f"AMS_Update.csv")
+    # تلوين السالب بالأحمر والموجب بالأخضر
+    st.dataframe(res_df.style.applymap(lambda v: f'color: {"red" if v < 0 else "green" if v > 0 else "black"}', subset=['Net Balance']), use_container_width=True)
 
 except Exception as e:
-    st.error(f"حدث خطأ: {e}")
+    st.error(f"حدث خطأ في النظام: {e}")
