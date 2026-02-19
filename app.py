@@ -3,30 +3,43 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. Page Configuration
-st.set_page_config(page_title="AMS - Auto Substitution", layout="wide")
+# 1. Page Configuration & Professional Blue & White Style
+st.set_page_config(page_title="AMS - Smart Substitution", layout="wide")
 
-# School Style CSS
 st.markdown(f"""
 <style>
+/* Background and Overlay */
 [data-testid="stAppViewContainer"] {{
-    background-image: url("https://images.unsplash.com/photo-1541339907198-e08756ebafe3?q=80&w=2070&auto=format&fit=crop");
-    background-size: cover; background-attachment: fixed;
+    background-image: url("https://i.ibb.co/v4m3S3v/rs-w-890-cg-true.webp");
+    background-size: contain; background-position: center; background-repeat: no-repeat; background-attachment: fixed;
+    background-color: #F0F2F6;
 }}
 [data-testid="stAppViewContainer"]::before {{
     content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background-color: rgba(245, 247, 249, 0.92); z-index: 0;
+    background-color: rgba(255, 255, 255, 0.9); z-index: 0;
 }}
 .main .block-container {{ position: relative; z-index: 1; }}
-h1, h2, h3, p, span, label {{ color: #1A365D !important; font-weight: bold; }}
+
+/* Typography - Royal Blue & Black */
+h1, h2, h3, p, span, label {{ color: #1E3A8A !important; font-weight: bold; font-family: 'Inter', sans-serif; }}
+
+/* Cards Styling */
 .sub-box {{
-    background-color: #ffffff; border: 2px solid #E2E8F0; border-radius: 12px;
-    padding: 15px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    background-color: #FFFFFF; border: 2px solid #DBEAFE; border-radius: 12px;
+    padding: 15px; text-align: center; box-shadow: 0 4px 6px rgba(30, 58, 138, 0.1);
 }}
+
+/* Sidebar & Buttons */
+[data-testid="stSidebar"] {{ background-color: #FFFFFF !important; border-right: 2px solid #DBEAFE; }}
+.stButton>button {{
+    background: #1E3A8A !important; color: white !important;
+    border-radius: 8px !important; width: 100%; border: none !important;
+}}
+div.stButton > button:first-child {{ background: #2563EB !important; }} /* Primary Blue */
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏛️ ELA Teachers' Automated Substitution")
+st.title("🏛️ ELA Teachers' Smart Substitution")
 
 # 2. Connection Logic
 BASE_URL = "https://docs.google.com/spreadsheets/d/1NKg4TUOJCvwdYbak4nTr3JIUoNYE5whHV2LhLaElJYY/edit"
@@ -49,78 +62,85 @@ if 'balance_data' not in st.session_state:
         st.error("Connection Error.")
         st.stop()
 
-if 'used_in_session' not in st.session_state:
-    st.session_state.used_in_session = []
+# Persistent storage for selected subs during shuffle
+if 'locked_subs' not in st.session_state:
+    st.session_state.locked_subs = {}
 
-# 3. Main Logic
+# 3. Automation Logic
 try:
     selected_day = st.sidebar.selectbox("Select Day:", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[selected_day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
     
-    # قائمة المدرسين تبدأ بخيار فارغ كما طلبت
     teachers = [""] + list(day_df['Teacher_Name'].dropna().unique())
     absent_t = st.sidebar.selectbox("Select Absent Teacher:", teachers)
 
-    if absent_t != "":
-        st.subheader(f"📋 Substitution Plan for {absent_t}")
-        
+    if absent_t:
+        st.subheader(f"📋 Suggested Plan for {absent_t}")
         session_cols = [c for c in day_df.columns if "Session" in c or "P" in c]
         absent_row = day_df[day_df['Teacher_Name'] == absent_t].iloc[0]
-        # الحصص التي لا تحتوي على كلمة Free
         busy_sessions = [s for s in session_cols if str(absent_row[s]).lower() != 'free' and pd.notna(absent_row[s])]
 
-        # زر الـ Shuffle
-        if st.button("🔀 Reshuffle All Substitutes"):
-            st.rerun()
+        def get_possible_subs(sess_name):
+            possible = []
+            for _, row in day_df.iterrows():
+                workload = sum(1 for s in session_cols if str(row[s]).lower() != 'free' and pd.notna(row[s]))
+                current_credit = st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == row['Teacher_Name'], 'Credit'].values[0]
+                if (row['Teacher_Name'] != absent_t and str(row[sess_name]).lower() == 'free' and workload < 6 and current_credit < 4):
+                    possible.append(row['Teacher_Name'])
+            return possible
 
-        final_assignments = {}
-        cols = st.columns(len(busy_sessions)) if busy_sessions else st.info("No busy sessions found.")
+        # Substitution Display Grid
+        cols = st.columns(len(busy_sessions)) if busy_sessions else []
+        current_plan = {}
 
         for i, sess in enumerate(busy_sessions):
             with cols[i]:
-                # منطق اختيار البديل الذكي:
-                possible = []
-                for _, row in day_df.iterrows():
-                    # حساب النصاب اليومي
-                    workload = sum(1 for s in session_cols if str(row[s]).lower() != 'free' and pd.notna(row[s]))
-                    # رصيد البدائل الحالي
-                    current_credit = st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == row['Teacher_Name'], 'Credit'].values[0]
-                    
-                    if (row['Teacher_Name'] != absent_t and 
-                        str(row[sess]).lower() == 'free' and 
-                        workload < 6 and 
-                        current_credit < 4):
-                        possible.append(row['Teacher_Name'])
+                possible_list = get_possible_subs(sess)
                 
-                chosen_sub = random.choice(possible) if possible else "No Sub Available"
-                final_assignments[sess] = chosen_sub
+                # Logic for locking/shuffling
+                if sess not in st.session_state.locked_subs or st.session_state.locked_subs[sess] not in possible_list:
+                    chosen = random.choice(possible_list) if possible_list else "None"
+                    st.session_state.locked_subs[sess] = chosen
                 
-                st.markdown(f"""<div class="sub-box">
-                    <small style="color:gray">{sess}</small><br>
-                    <span style="font-size:18px">{chosen_sub}</span>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f'<div class="sub-box"><small>{sess}</small></div>', unsafe_allow_html=True)
+                
+                # The "Selection" mechanism: Select if suitable
+                is_suitable = st.checkbox("Keep", key=f"check_{sess}", value=False)
+                
+                # Display the teacher name
+                st.write(f"**{st.session_state.locked_subs[sess]}**")
+                current_plan[sess] = st.session_state.locked_subs[sess]
+
+        st.sidebar.divider()
+        if st.sidebar.button("🔀 Shuffle Unlocked"):
+            # Clear only unlocked ones
+            for s in busy_sessions:
+                if not st.session_state.get(f"check_{s}"):
+                    st.session_state.locked_subs.pop(s, None)
+            st.rerun()
 
         if st.button("✅ Confirm & Submit to Cloud"):
-            # تحديث الخصم للغائب
             st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += len(busy_sessions)
-            # تحديث الرصيد للبدلاء
-            for s, teacher in final_assignments.items():
-                if teacher != "No Sub Available":
+            for s, teacher in current_plan.items():
+                if teacher != "None":
                     st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == teacher, 'Credit'] += 1
             
             conn.update(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}", data=st.session_state.balance_data)
             st.success("Synchronized Successfully!")
             st.balloons()
 
-    # Ledger
+    # Ledger (The Table)
     st.divider()
     st.subheader("📊 Performance Ledger")
     res_df = st.session_state.balance_data.copy()
     res_df['Net'] = res_df['Credit'] - res_df['Debit']
     st.dataframe(res_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
-        lambda v: f'color: {"red" if v < 0 else "green" if v > 0 else "black"}', subset=['Net']
+        lambda v: f'color: {"#DC2626" if v < 0 else "#16A34A" if v > 0 else "#1E3A8A"}', subset=['Net']
     ), use_container_width=True)
 
+    csv = res_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 Export CSV", csv, f"AMS_Report.csv", "text/csv")
+
 except Exception as e:
-    st.info("Please select a teacher from the sidebar to generate the plan.")
+    st.info("Select a teacher from the sidebar to start.")
