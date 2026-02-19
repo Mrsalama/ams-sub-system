@@ -3,68 +3,77 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import random
 
-# 1. Page Configuration & Modern Dashboard Style
+# 1. Page Configuration & UI Professional Style
 st.set_page_config(page_title="AMS - ELA Substitution System", layout="wide")
+
+# رابط صورة المدرسة
+SCHOOL_BG = "https://i.ibb.co/v4m3S3v/rs-w-890-cg-true.webp"
 
 st.markdown(f"""
 <style>
-    /* Global Background: Modern Neutral Gray */
+    /* Background Image Setup */
     [data-testid="stAppViewContainer"] {{
-        background-color: #F0F2F5;
+        background-image: url("{SCHOOL_BG}");
+        background-size: contain; 
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        background-color: #f8f9fa;
     }}
-    
-    /* Modern Card Container */
+
+    /* Semi-transparent Overlay for Text Clarity */
+    [data-testid="stAppViewContainer"]::before {{
+        content: "";
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(255, 255, 255, 0.9); 
+        z-index: 0;
+    }}
+
     .main .block-container {{
-        background-color: transparent;
-        padding-top: 2rem;
+        position: relative;
+        z-index: 1;
     }}
 
-    /* Headers: Deep Navy */
-    h1, h2, h3 {{
-        color: #0F172A !important;
-        font-family: 'Inter', sans-serif;
-        font-weight: 700 !important;
+    /* Bold Navy Typography */
+    h1, h2, h3, p, span, label, .stSelectbox label {{
+        color: #001f3f !important;
+        font-weight: bold !important;
     }}
 
-    /* Card Styling: White with crisp borders */
-    .stDataFrame, .sub-box, div[data-baseweb="select"], .stAlert {{
-        background-color: #FFFFFF !important;
+    /* Card Style for Tables & Containers */
+    .stDataFrame, .sub-box, div[data-testid="stExpander"] {{
+        background-color: white !important;
         border-radius: 12px !important;
-        border: 1px solid #E2E8F0 !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-        padding: 10px;
+        padding: 10px !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
     }}
 
-    /* Sidebar: Clean White Style */
-    [data-testid="stSidebar"] {{
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E2E8F0;
-    }}
-
-    /* Buttons: Professional Indigo Gradient */
-    .stButton>button {{
-        background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        padding: 0.6rem 1.2rem !important;
-        transition: all 0.2s ease;
+    /* --- التعديل المطلوب: تكبير وتغميق كلمة Session و Sub --- */
+    .session-label {{
+        color: #000000 !important;
+        font-size: 20px !important; /* حجم أكبر */
+        font-weight: 900 !important; /* لون أغمق */
+        display: block;
+        margin-bottom: 5px;
     }}
     
-    .stButton>button:hover {{
-        box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4) !important;
-        transform: translateY(-1px);
+    .sub-label {{
+        color: #000000 !important;
+        font-size: 18px !important; /* حجم أكبر */
+        font-weight: 800 !important; /* لون أغمق */
     }}
 
-    /* Selectbox highlight */
-    div[data-baseweb="select"] {{
-        border: 1px solid #4F46E5 !important;
+    /* Sidebar and Buttons */
+    .stButton>button {{
+        background-color: #004A99 !important;
+        color: white !important;
+        font-weight: bold !important;
+        border-radius: 8px !important;
     }}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏛️ ELA Department - Smart Substitution Dashboard")
+st.title("🏛️ ELA Department - Substitution Dashboard")
 
 # 2. Connection Logic
 BASE_URL = "https://docs.google.com/spreadsheets/d/1NKg4TUOJCvwdYbak4nTr3JIUoNYE5whHV2LhLaElJYY/edit"
@@ -86,31 +95,26 @@ if 'balance_data' not in st.session_state:
         df_bal['Credit'] = pd.to_numeric(df_bal['Credit'], errors='coerce').fillna(0)
         st.session_state.balance_data = df_bal
     except:
-        st.error("Connection lost.")
+        st.error("Connection Error.")
         st.stop()
 
 # 3. Operations Hub
 try:
-    st.sidebar.markdown("### ⚙️ Settings")
-    selected_day = st.sidebar.selectbox("Day Selection", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
-    
+    selected_day = st.sidebar.selectbox("📅 Select Day", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"])
     day_df = conn.read(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS[selected_day]}", header=1)
     day_df.columns = [str(c).strip() for c in day_df.columns]
     
-    st.subheader("👤 Step 1: Identify Absent Staff")
+    st.subheader("👤 Step 1: Select Absent Teachers")
     all_teachers = day_df['Teacher_Name'].dropna().unique()
-    absent_teachers = st.multiselect("Search and select teachers:", all_teachers)
+    absent_teachers = st.multiselect("Identify teachers who are absent today:", all_teachers)
 
     if absent_teachers:
-        col_btn1, col_btn2 = st.columns([1, 5])
-        with col_btn1:
-            if st.button("🔀 Reshuffle All"):
-                st.session_state.shuffle_seed = random.randint(0, 999)
-                st.session_state.shuffle_key += 1
-                st.rerun()
+        if st.button("🔀 Reshuffle All Substitutes"):
+            st.session_state.shuffle_key += 1
+            st.rerun()
 
         st.divider()
-        st.subheader("📋 Step 2: Review Suggested Substitutions")
+        st.subheader("📋 Step 2: Automated Substitution Map")
         
         session_cols = [c for c in day_df.columns if "Session" in c or "P" in c]
         total_assignments = {}
@@ -133,14 +137,15 @@ try:
                                 possible.append(t_name)
                         
                         chosen_sub = random.choice(possible) if possible else "N/A"
-                        st.markdown(f"**{sess}**")
-                        final_sub = st.selectbox("Sub:", possible, 
+                        
+                        # --- تطبيق الستايل الجديد هنا ---
+                        st.markdown(f'<span class="session-label">{sess}</span>', unsafe_allow_html=True)
+                        final_sub = st.selectbox("Assign Sub:", possible, 
                                                 index=possible.index(chosen_sub) if chosen_sub in possible else 0,
                                                 key=f"s_{absent_t}_{sess}_{st.session_state.shuffle_key}")
                         total_assignments[f"{absent_t}_{sess}"] = final_sub
 
-        if st.button("🚀 Finalize & Save to Database"):
-            # Update Points
+        if st.button("🚀 Confirm & Finalize Assignments"):
             for absent_t in absent_teachers:
                 absent_row = day_df[day_df['Teacher_Name'] == absent_t].iloc[0]
                 count = sum(1 for s in session_cols if str(absent_row[s]).lower() != 'free' and pd.notna(absent_row[s]))
@@ -151,7 +156,7 @@ try:
                     st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == sub_name, 'Credit'] += 1
             
             conn.update(spreadsheet=f"{BASE_URL}#gid={TAB_GIDS['Debit & Credit']}", data=st.session_state.balance_data)
-            st.success("Cloud Synchronized!")
+            st.success("Cloud Data Synchronized!")
             st.balloons()
 
     st.divider()
@@ -159,8 +164,8 @@ try:
     res_df = st.session_state.balance_data.copy()
     res_df['Net'] = res_df['Credit'] - res_df['Debit']
     st.dataframe(res_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
-        lambda v: f'color: {"#E11D48" if v < 0 else "#059669" if v > 0 else "#1E293B"}', subset=['Net']
+        lambda v: f'color: {"#D9534F" if v < 0 else "#22c55e" if v > 0 else "#001f3f"}', subset=['Net']
     ), use_container_width=True)
 
 except Exception as e:
-    st.info("Awaiting input: Select absent teachers from the menu.")
+    st.info("Select teachers from the list to start.")
