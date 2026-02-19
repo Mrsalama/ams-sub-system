@@ -6,26 +6,25 @@ import random
 # 1. Page Configuration & UI Professional Style
 st.set_page_config(page_title="AMS - ELA Substitution System", layout="wide")
 
-# رابط صورة المدرسة
-SCHOOL_BG = "https://i.ibb.co/v4m3S3v/rs-w-890-cg-true.webp"
+# رابط صورة الخلفية الجديدة (AMS COVER)
+NEW_BG = "https://img1.wsimg.com/isteam/ip/d03b28ee-bce7-4c2e-abac-d1a2150c0744/AMS%20COVER.jpg/:/cr=t:0%25,l:0%25,w:100%25,h:100%25/rs=w:890,cg:true"
 
 st.markdown(f"""
 <style>
     /* Background Image Setup */
     [data-testid="stAppViewContainer"] {{
-        background-image: url("{SCHOOL_BG}");
-        background-size: contain; 
+        background-image: url("{NEW_BG}");
+        background-size: cover; 
         background-position: center;
         background-repeat: no-repeat;
         background-attachment: fixed;
-        background-color: #f8f9fa;
     }}
 
     /* Semi-transparent Overlay for Text Clarity */
     [data-testid="stAppViewContainer"]::before {{
         content: "";
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        background-color: rgba(255, 255, 255, 0.9); 
+        background-color: rgba(255, 255, 255, 0.85); /* طبقة بيضاء شفافة لضمان وضوح الكلام */
         z-index: 0;
     }}
 
@@ -45,22 +44,22 @@ st.markdown(f"""
         background-color: white !important;
         border-radius: 12px !important;
         padding: 10px !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1) !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
     }}
 
-    /* --- التعديل المطلوب: تكبير وتغميق كلمة Session و Sub --- */
+    /* تكبير وتغميق كلمة Session و Sub */
     .session-label {{
         color: #000000 !important;
-        font-size: 20px !important; /* حجم أكبر */
-        font-weight: 900 !important; /* لون أغمق */
+        font-size: 22px !important;
+        font-weight: 900 !important;
         display: block;
         margin-bottom: 5px;
     }}
     
     .sub-label {{
         color: #000000 !important;
-        font-size: 18px !important; /* حجم أكبر */
-        font-weight: 800 !important; /* لون أغمق */
+        font-size: 19px !important;
+        font-weight: 800 !important;
     }}
 
     /* Sidebar and Buttons */
@@ -73,7 +72,7 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏛️ ELA Department - Substitution Dashboard")
+st.title("🏛️ ELA Department - Smart Substitution System")
 
 # 2. Connection Logic
 BASE_URL = "https://docs.google.com/spreadsheets/d/1NKg4TUOJCvwdYbak4nTr3JIUoNYE5whHV2LhLaElJYY/edit"
@@ -138,7 +137,7 @@ try:
                         
                         chosen_sub = random.choice(possible) if possible else "N/A"
                         
-                        # --- تطبيق الستايل الجديد هنا ---
+                        # تطبيق الستايل المطلوب للكلمات
                         st.markdown(f'<span class="session-label">{sess}</span>', unsafe_allow_html=True)
                         final_sub = st.selectbox("Assign Sub:", possible, 
                                                 index=possible.index(chosen_sub) if chosen_sub in possible else 0,
@@ -160,7 +159,7 @@ try:
             st.balloons()
 
     st.divider()
-    st.subheader("📊 Live Performance Tracker")
+    st.subheader("📊 Live Performance Ledger")
     res_df = st.session_state.balance_data.copy()
     res_df['Net'] = res_df['Credit'] - res_df['Debit']
     st.dataframe(res_df[['Teacher_Name', 'Debit', 'Credit', 'Net']].style.applymap(
@@ -168,4 +167,4 @@ try:
     ), use_container_width=True)
 
 except Exception as e:
-    st.info("Select teachers from the list to start.")
+    st.info("Select teachers to start.")
