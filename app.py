@@ -8,49 +8,26 @@ st.set_page_config(page_title="AMS - ELA Substitution System", layout="wide")
 
 st.markdown(f"""
 <style>
-    /* Background: Clean Light Gray/White */
     [data-testid="stAppViewContainer"] {{
         background-color: #F7F9FC;
     }}
-    
-    /* Header & Typography: Menaitech Blue */
     h1, h2, h3 {{
         color: #004A99 !important;
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-family: 'Segoe UI', Roboto, sans-serif;
         font-weight: 600 !important;
     }}
-    
-    /* Global Text: Dark Gray */
-    p, label, .stMarkdown {{
-        color: #4A4A4A !important;
-    }}
-
-    /* Card Design: White with subtle shadow */
     .stDataFrame, .sub-box, div[data-baseweb="select"], .stAlert {{
         background-color: #FFFFFF !important;
         border-radius: 10px !important;
         border: 1px solid #E1E4E8 !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }}
-
-    /* Buttons: Corporate Blue Gradient */
     .stButton>button {{
         background: linear-gradient(180deg, #0056B3 0%, #004A99 100%) !important;
         color: white !important;
         border: none !important;
         border-radius: 6px !important;
         font-weight: 500 !important;
-        transition: all 0.2s ease;
-    }}
-    
-    .stButton>button:hover {{
-        background: #003D80 !important;
-    }}
-
-    /* Sidebar: Professional White */
-    [data-testid="stSidebar"] {{
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E1E4E8;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -93,7 +70,7 @@ try:
 
     if absent_teachers:
         st.divider()
-        st.markdown(f"### 🔄 Live Plan")
+        st.markdown("### 🔄 Live Plan")
         
         session_cols = [c for c in day_df.columns if "Session" in c or "P" in c]
         total_assignments = {}
@@ -141,7 +118,8 @@ try:
             if st.button("🚀 Confirm & Finalize Assignments"):
                 for absent_t in absent_teachers:
                     absent_row = day_df[day_df['Teacher_Name'] == absent_t].iloc[0]
-                    session_count = sum(1 for s in session_cols if str(absent_row[s]).lower() != 'free' and pd.notna(absent_row[s])]
+                    # السطر الذي تم إصلاحه هنا (تغيير القوس في النهاية)
+                    session_count = sum(1 for s in session_cols if str(absent_row[s]).lower() != 'free' and pd.notna(absent_row[s]))
                     st.session_state.balance_data.loc[st.session_state.balance_data['Teacher_Name'] == absent_t, 'Debit'] += session_count
                 
                 for key, sub_name in total_assignments.items():
